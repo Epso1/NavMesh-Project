@@ -4072,6 +4072,27 @@ TextureImporter:
       indices: 
       edges: []
       weights: []
+    - serializedVersion: 2
+      name: Atlas_0
+      rect:
+        serializedVersion: 2
+        x: 208
+        y: 48
+        width: 16
+        height: 16
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 5444f6794da9dfb48869be0d15f4b8e8
+      internalID: 943277780
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
     outline: []
     physicsShape:
     - - {x: -128, y: 128}
@@ -4088,6 +4109,7 @@ TextureImporter:
     secondaryTextures: []
     nameFileIdTable:
       Arrow_Shot: 210736301
+      Atlas_0: 943277780
       Carpet_A: -1455102901
       Carpet_B: 2080420847
       Carpet_C: 297017320
