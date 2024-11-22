@@ -3214,7 +3214,8 @@ MonoBehaviour:
   questionMark: {fileID: 196462052}
   backViewRangeDivider: 3
   searchRadius: 8
-  searchDuration: 5
+  searchDuration: 10
+  searchDirectionChangeDuration: 2
 --- !u!195 &2028499080
 NavMeshAgent:
   m_ObjectHideFlags: 0
