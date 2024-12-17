@@ -1,10 +1,11 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
-public class Enemy : MonoBehaviour
+public class SleepyheadEnemy : MonoBehaviour
 {
-    public enum EnemyState { Patrol, Chase, Attack, ExploreHeard, Waiting, WarningHeard, PlayerSeenAndLost }
+    public enum EnemyState { Sleeping, Chase, ExploreHeard, Waiting, WarningHeard, PlayerSeenAndLost }
 
     private NavMeshAgent agent; // Referencia al NavMeshAgent
     private SpriteRenderer spriteRenderer; // Referencia al SpriteRenderer
@@ -16,14 +17,13 @@ public class Enemy : MonoBehaviour
 
     [SerializeField] private float speed = 1f; // Velocidad inicial del enemigo
     [SerializeField] private Transform player; // Referencia a la posición del jugador
-    [SerializeField] private float destinationReachedDistance = 0.9f; // Distancia que determina cuando se ha llegado al destino
-    [SerializeField] private Transform patrolSpot1; // Punto de patrulla 1
-    [SerializeField] private Transform patrolSpot2; // Punto de patrulla 2
+    [SerializeField] private float destinationReachedDistance = 0.68f; // Distancia que determina cuando se ha llegado al destino
     [SerializeField] private float viewRange = 7f; // Rango de visión
     [SerializeField] private LayerMask enemyLayer; // Referencia al layer del enemigo para evitar que colisione con el Raycast de visión
     [SerializeField] private float hearingRadius = 4f; // Radio de escucha
     [SerializeField] private LayerMask excludeHearingLayers; // Capas que no detecta la escucha
     [SerializeField] private GameObject questionMark; // Símbolo de interrogación que se muestra cuando el enemigo ha escuchado al jugador moverse
+    [SerializeField] private GameObject zLeter; // Letra Z que se muestra cuando el enemigo está durmiendo
     [SerializeField] private float backViewRangeDivider = 3f; // El rango de visión trasera será igual al rango de visión frontal dividida entre este valora 
     [SerializeField] private float searchRadius = 8f; // Radio de busqueda
     [SerializeField] private float searchDuration = 10f; // Tiempo durante el cual el enemigo buscará al jugador
@@ -33,6 +33,7 @@ public class Enemy : MonoBehaviour
     private float tempViewRange; // Rango de visión temporal
     private Coroutine heardCoroutine; // Referencia a la corrutina que se ejecuta cuando se ha escuchado al jugador moverse
     private Vector2 lastPlayerSeenPosition;
+    private Vector2 initialPosition;
 
 
     void Start()
@@ -40,20 +41,20 @@ public class Enemy : MonoBehaviour
         // Inicializa los componentes
         agent = GetComponent<NavMeshAgent>();
         spriteRenderer = GetComponent<SpriteRenderer>();
-       
+
         // Configura el Agent para que no se gire
         agent.updateRotation = false;
         agent.updateUpAxis = false;
-        
+
         // Establece el estado inicial y la última posición del enemigo
-        currentState = EnemyState.Patrol;
-        currentPatrolSpot = patrolSpot2;
+        currentState = EnemyState.Sleeping;
+        initialPosition = transform.position;
         lastPosition = transform.position;
 
         // Se suscribe al evento del jugador cuando se mueve OnPlayerMoving
         Player.OnPlayerMoving += OnPlayerHeard;
     }
-    
+
     void Update()
     {
         FlipHorizontally();
@@ -66,19 +67,19 @@ public class Enemy : MonoBehaviour
 
         switch (currentState)
         {
-            case EnemyState.Patrol:
-                Patrol();
+            case EnemyState.Sleeping:
+                Sleep();
                 break;
 
             case EnemyState.Chase:
-              ChasePlayer(lastPlayerSeenPosition);
-               break;
+                ChasePlayer(lastPlayerSeenPosition);
+                break;
 
             case EnemyState.ExploreHeard:
                 ExplorePositionHeard(playerTempPosition);
                 break;
 
-            case EnemyState.WarningHeard:                
+            case EnemyState.WarningHeard:
                 heardCoroutine = StartCoroutine(WarningHeard());
                 break;
 
@@ -103,6 +104,12 @@ public class Enemy : MonoBehaviour
             questionMark.SetActive(false);
         }
 
+        // Si la letra Z está activa, se desactiva
+        if (zLeter.activeSelf)
+        {
+            zLeter.SetActive(false);
+        }
+
         // Si ha llegado a la posición donde ha visto al jugador, cambia el estado a PlayerSeenAndLost
         if (Vector3.Distance(transform.position, lastPosition) <= destinationReachedDistance)
         {
@@ -110,28 +117,23 @@ public class Enemy : MonoBehaviour
         }
     }
 
-    // Método para manejar el comportamiento del enemigo cuando patrulla
-    void Patrol()
+    // Método para manejar el comportamiento del enemigo cuando está de guardia(durmiendo)
+    void Sleep()
     {
-        // Establece como destino el punto actual al que tiene que ir
-        agent.SetDestination(currentPatrolSpot.position);
+        // Establece como destino la posición inicial del enemigo
+        agent.SetDestination(initialPosition);
 
-        // Establece la velocidad del enemigo
-        agent.speed = speed;
-
-        // Si ha llegado al destino, cambia el punto de destino
-        if (Vector3.Distance(transform.position, currentPatrolSpot.position) <= destinationReachedDistance)
+        // Si ha llegado al destino, se pone a dormir
+        if (Vector3.Distance(transform.position, initialPosition) <= destinationReachedDistance)
         {
-            if (currentPatrolSpot == patrolSpot1)
+            if (spriteRenderer.flipX)
             {
-                currentPatrolSpot = patrolSpot2;
+                spriteRenderer.flipX = false;
             }
-            else
-            {
-                currentPatrolSpot = patrolSpot1;
-            }
-        }        
+            zLeter.SetActive(true);
+        }
     }
+
     // Método que rota el Sprite en el eje X, dependiendo de la dirección a la que se dirige
     void FlipHorizontally()
     {
@@ -159,14 +161,14 @@ public class Enemy : MonoBehaviour
         viewDirection = ((Vector2)player.position - lastPosition).normalized;
 
         // Si está mirando hacia la dirección opuesta al jugador, reduce la distancia de visión
-        if ((player.position.x < transform.position.x && facingRight) || (player.position.x > transform.position.x && !facingRight) )
+        if ((player.position.x < transform.position.x && facingRight) || (player.position.x > transform.position.x && !facingRight))
         {
             tempViewRange = viewRange / backViewRangeDivider;
-        }       
+        }
         else
         {
             tempViewRange = viewRange;
-        }    
+        }
         // Emite el raycast que simula la visión del enemigo, excluyendo las colisiones en la capa del enemigo
         RaycastHit2D hit = Physics2D.Raycast(transform.position, viewDirection, tempViewRange, ~enemyLayer);
 
@@ -185,14 +187,14 @@ public class Enemy : MonoBehaviour
                 if (currentState != EnemyState.Chase)
                 {
                     Debug.Log("Changing state to Chase.");
-                    
+
                     // Detiene la corrutina de escucha si se está ejecutando
                     if (heardCoroutine != null)
                     {
                         StopCoroutine(heardCoroutine);
                     }
                     currentState = EnemyState.Chase;
-                }                
+                }
             }
         }
         return playerSeen;
@@ -224,8 +226,8 @@ public class Enemy : MonoBehaviour
                     CancelInvoke(nameof(StopSearch));
                     currentState = EnemyState.WarningHeard;
                 }
-                // Si el enemigo está patrullando, cambia el estado a WarningHeard
-                else if (currentState == EnemyState.Patrol)
+                // Si el enemigo está durmiendo, cambia el estado a WarningHeard
+                else if (currentState == EnemyState.Sleeping)
                 {
                     Debug.Log("Changing state to Warning.");
                     currentState = EnemyState.WarningHeard;
@@ -242,8 +244,14 @@ public class Enemy : MonoBehaviour
         currentState = EnemyState.Waiting;
 
         // Establece como destino la posición del enemigo para que no se mueva
-        agent.SetDestination(transform.position);   
-        
+        agent.SetDestination(transform.position);
+
+        // Si la letra Z está activa, se desactiva
+        if (zLeter.activeSelf)
+        {
+            zLeter.SetActive(false);
+        }
+
         // Activa el signo de interrogación
         questionMark.SetActive(true);
 
@@ -265,15 +273,15 @@ public class Enemy : MonoBehaviour
     }
     // Método para que el enemigo vaya a explorar el lugar desde donde ha oído moverse al jugador
     void ExplorePositionHeard(Vector2 tempTarget)
-    {       
+    {
         // Establece como destino la posición donde se ha oído al jugador
         agent.SetDestination(tempTarget);
 
         // Si ha llegado al destino
         if (Vector3.Distance(transform.position, tempTarget) <= destinationReachedDistance)
         {
-            // Cambia el estado a Patrol
-            currentState = EnemyState.Patrol;
+            // Cambia el estado a Sleeping
+            currentState = EnemyState.Sleeping;
         }
     }
 
@@ -318,8 +326,8 @@ public class Enemy : MonoBehaviour
     {
         // Cancela la búsqueda y vuelve al estado de patrulla
         CancelInvoke(nameof(SearchForPlayer));
-        Debug.Log("Player not found, returning to Patrol state.");
-        currentState = EnemyState.Patrol;
+        Debug.Log("Player not found, returning to Sleeping state.");
+        currentState = EnemyState.Sleeping;
     }
     // Método que se ejecuta cuando el enemigo es destruido
     void OnDestroy()
@@ -332,11 +340,11 @@ public class Enemy : MonoBehaviour
     void OnDrawGizmos()
     {
         // Dibuja el Raycast de la visión
-        Gizmos.color = Color.red;        
+        Gizmos.color = Color.red;
         Gizmos.DrawLine(transform.position, transform.position + (Vector3)viewDirection * tempViewRange);
 
         // Dibuja un círculo que representa al rango de escucha
-        Gizmos.color = Color.green;   
+        Gizmos.color = Color.green;
         Gizmos.DrawWireSphere(transform.position, hearingRadius);
     }
 }
