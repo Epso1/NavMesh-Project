@@ -4,7 +4,7 @@ using UnityEngine.AI;
 
 public class Enemy : MonoBehaviour
 {
-    public enum EnemyState { Patrol, Chase, Attack, ExploreHeard, Waiting, WarningHeard, PlayerSeenAndLost }
+    public enum EnemyState { Patrol, Chase, ExploreHeard, Waiting, WarningHeard, PlayerSeenAndLost }
 
     private NavMeshAgent agent; // Referencia al NavMeshAgent
     private SpriteRenderer spriteRenderer; // Referencia al SpriteRenderer

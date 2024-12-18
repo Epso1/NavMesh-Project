@@ -1,39 +1,41 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.VisualScripting.Antlr3.Runtime;
 using UnityEngine;
 using UnityEngine.AI;
 
-public class SleepyheadEnemy : MonoBehaviour
+public class GuardEnemy : MonoBehaviour
 {
-    public enum EnemyState { Sleeping, Chase, ExploreHeard, Waiting, WarningHeard, PlayerSeenAndLost }
+    public enum EnemyState { Guard, Waiting, Chase, Attack, PlayerSeenAndLost }
 
     private NavMeshAgent agent; // Referencia al NavMeshAgent
     private SpriteRenderer spriteRenderer; // Referencia al SpriteRenderer
     private EnemyState currentState; // Estado actual del enemigo
     private bool facingRight = true; // Determina si el enemigo está mirando hacia la derecha
     private Vector2 lastPosition = Vector2.zero; // Última posición para tener referencia de hacia qué dirección se dirige el enemigo
-    private Transform currentPatrolSpot; // Destino actual de patrulla
-
+    [SerializeField] private GameObject attackPrefab;
+    [SerializeField] private float coolDownTime;
 
     [SerializeField] private float speed = 1f; // Velocidad inicial del enemigo
     [SerializeField] private Transform player; // Referencia a la posición del jugador
     [SerializeField] private float destinationReachedDistance = 0.68f; // Distancia que determina cuando se ha llegado al destino
     [SerializeField] private float viewRange = 7f; // Rango de visión
     [SerializeField] private LayerMask enemyLayer; // Referencia al layer del enemigo para evitar que colisione con el Raycast de visión
-    [SerializeField] private float hearingRadius = 4f; // Radio de escucha
-    [SerializeField] private LayerMask excludeHearingLayers; // Capas que no detecta la escucha
-    [SerializeField] private GameObject questionMark; // Símbolo de interrogación que se muestra cuando el enemigo ha escuchado al jugador moverse
-    [SerializeField] private GameObject zLeter; // Letra Z que se muestra cuando el enemigo está durmiendo
+    [SerializeField] private float attackRange = 4f; //Rango de ataque
+    [SerializeField] private LayerMask excludeAttackLayers; // Capas que no detecta el ataque
+   
     [SerializeField] private float backViewRangeDivider = 3f; // El rango de visión trasera será igual al rango de visión frontal dividida entre este valora 
     [SerializeField] private float searchRadius = 8f; // Radio de busqueda
     [SerializeField] private float searchDuration = 10f; // Tiempo durante el cual el enemigo buscará al jugador
     [SerializeField] private float searchDirectionChangeDuration = 2f; // Tiempo que tardará en cambiar de dirección cuando busca al jugador
+
+    private Vector2 playerTempPosition = Vector2.zero; // Posición en la que se ha detectado al jugador
     private Vector2 viewDirection; // Dirección hacia la que se proyecta el Raycast de visión
-    private Vector2 playerTempPosition = Vector2.zero; // Posición en la que se ha escuchado al jugador
     private float tempViewRange; // Rango de visión temporal
-    private Coroutine heardCoroutine; // Referencia a la corrutina que se ejecuta cuando se ha escuchado al jugador moverse
     private Vector2 lastPlayerSeenPosition;
     private Vector2 initialPosition;
+    private Coroutine attackCoroutine; // Referencia a la corrutina de ataque
+    private bool canAttack = true;
 
 
     void Start()
@@ -47,40 +49,34 @@ public class SleepyheadEnemy : MonoBehaviour
         agent.updateUpAxis = false;
 
         // Establece el estado inicial, la posición inicial y la última posición del enemigo
-        currentState = EnemyState.Sleeping;
+        currentState = EnemyState.Guard;
         initialPosition = transform.position;
         lastPosition = transform.position;
-
-        // Se suscribe al evento del jugador cuando se mueve OnPlayerMoving
-        Player.OnPlayerMoving += OnPlayerHeard;
     }
 
     void Update()
     {
-        FlipHorizontally();
-
-        CheckPlayerSeen();
-
+        FlipHorizontally();  
+        CheckPlayerInAttackRange();           
 
         // Establece la última posición del enemigo
         lastPosition = transform.position;
 
         switch (currentState)
         {
-            case EnemyState.Sleeping:
-                Sleep();
+            case EnemyState.Guard:
+                Guard();
+                break;
+
+            case EnemyState.Attack:
+                if (canAttack)
+                {
+                    Attack();
+                }
                 break;
 
             case EnemyState.Chase:
                 ChasePlayer(lastPlayerSeenPosition);
-                break;
-
-            case EnemyState.ExploreHeard:
-                ExplorePositionHeard(playerTempPosition);
-                break;
-
-            case EnemyState.WarningHeard:
-                heardCoroutine = StartCoroutine(WarningHeard());
                 break;
 
             case EnemyState.PlayerSeenAndLost:
@@ -88,6 +84,88 @@ public class SleepyheadEnemy : MonoBehaviour
                 break;
         }
     }
+
+    // Método para manejar el comportamiento del enemigo cuando está de guardia
+    void Guard()
+    {
+        CheckPlayerSeen();
+        // Establece como destino la posición inicial del enemigo
+        agent.SetDestination(initialPosition);
+
+        // Si ha llegado al destino, gira el sprite
+        if (Vector3.Distance(transform.position, initialPosition) <= destinationReachedDistance)
+        {
+            if (spriteRenderer.flipX)
+            {                
+                spriteRenderer.flipX = false;
+            }
+        }
+    }
+
+    // Método para manejar el comportamiento del enemigo cuando ataca
+    void Attack()
+    {
+        attackCoroutine = StartCoroutine(AttackEnum());
+    }
+
+    IEnumerator AttackEnum()
+    {
+        canAttack = false;
+        currentState = EnemyState.Waiting;
+        if (player != null)
+        {            
+            Instantiate(attackPrefab, player.transform.position, Quaternion.identity);
+            yield return new WaitForSeconds(coolDownTime);
+            
+            if (CheckPlayerInAttackRange() == false)
+            {
+                if (CheckPlayerSeen())
+                {
+                    currentState = EnemyState.Chase;
+                }
+                else
+                {
+                    currentState = EnemyState.Guard;
+                }
+            }
+            canAttack = true;
+        }  
+   
+    }
+
+    bool CheckPlayerInAttackRange()
+    {
+        bool inAttackRange = false;
+        // Calcula la dirección y la distancia
+        Vector2 direction = player.position - (Vector3)transform.position;
+        float distance = direction.magnitude;
+
+        // Si el jugador está dentro del rango de ataque
+        if (distance <= attackRange)
+        {
+            // Emite un CircleCast desde la posición del enemigo hacia la posición del jugador
+            RaycastHit2D hit = Physics2D.CircleCast(transform.position, attackRange, direction, 0f, ~excludeAttackLayers);
+
+            // Si detecta al jugador
+            if (hit.collider != null)
+            {
+                inAttackRange = true;
+                Debug.Log("Player in attack range at: " + player.position);
+                playerTempPosition = player.position;
+
+                // Si está buscando al jugador, cancela la búsqueda y ataca
+                if (currentState == EnemyState.PlayerSeenAndLost)
+                {
+                    Debug.Log("Cancelling search due to player detection.");
+                    CancelInvoke(nameof(SearchForPlayer));
+                    CancelInvoke(nameof(StopSearch));                    
+                }
+                currentState = EnemyState.Attack;
+            }
+        }
+        return inAttackRange;
+    }
+
 
     // Método para manejar el comportamiento del enemigo cuando persigue al jugador
     void ChasePlayer(Vector2 lastPosition)
@@ -98,18 +176,6 @@ public class SleepyheadEnemy : MonoBehaviour
         // Duplica la velocidad del enemigo
         agent.speed = speed * 2;
 
-        // Si el interrogante está activo, se desactiva
-        if (questionMark.activeSelf)
-        {
-            questionMark.SetActive(false);
-        }
-
-        // Si la letra Z está activa, se desactiva
-        if (zLeter.activeSelf)
-        {
-            zLeter.SetActive(false);
-        }
-
         // Si ha llegado a la posición donde ha visto al jugador, cambia el estado a PlayerSeenAndLost
         if (Vector3.Distance(transform.position, lastPosition) <= destinationReachedDistance)
         {
@@ -117,23 +183,7 @@ public class SleepyheadEnemy : MonoBehaviour
         }
     }
 
-    // Método para manejar el comportamiento del enemigo cuando está de guardia(durmiendo)
-    void Sleep()
-    {
-        // Establece como destino la posición inicial del enemigo
-        agent.SetDestination(initialPosition);
-
-        // Si ha llegado al destino, se pone a dormir
-        if (Vector3.Distance(transform.position, initialPosition) <= destinationReachedDistance)
-        {
-            if (spriteRenderer.flipX)
-            {
-                spriteRenderer.flipX = false;
-            }
-            zLeter.SetActive(true);
-        }
-    }
-
+   
     // Método que rota el Sprite en el eje X, dependiendo de la dirección a la que se dirige
     void FlipHorizontally()
     {
@@ -187,103 +237,12 @@ public class SleepyheadEnemy : MonoBehaviour
                 if (currentState != EnemyState.Chase)
                 {
                     Debug.Log("Changing state to Chase.");
-
-                    // Detiene la corrutina de escucha si se está ejecutando
-                    if (heardCoroutine != null)
-                    {
-                        StopCoroutine(heardCoroutine);
-                    }
                     currentState = EnemyState.Chase;
                 }
             }
         }
         return playerSeen;
-    }
-    // Método que está suscrito al evento Player.OnPlayerMoving, que se emite cuando el jugador se mueve 
-    void OnPlayerHeard(Vector2 playerPosition)
-    {
-        // Calcula la dirección y la distancia
-        Vector2 direction = playerPosition - (Vector2)transform.position;
-        float distance = direction.magnitude;
-
-        // Si el jugador está dentro del rango de escucha
-        if (distance <= hearingRadius)
-        {
-            // Emite un CircleCast desde la posición del enemigo hacia la posición del jugador
-            RaycastHit2D hit = Physics2D.CircleCast(transform.position, hearingRadius, direction, 0f, ~excludeHearingLayers);
-
-            // Si escucha al jugador
-            if (hit.collider != null)
-            {
-                Debug.Log("Player heard at: " + playerPosition);
-                playerTempPosition = playerPosition;
-
-                // Si está buscando al jugador, cancela la búsqueda y explora el punto escuchado
-                if (currentState == EnemyState.PlayerSeenAndLost)
-                {
-                    Debug.Log("Cancelling search due to noise.");
-                    CancelInvoke(nameof(SearchForPlayer));
-                    CancelInvoke(nameof(StopSearch));
-                    currentState = EnemyState.WarningHeard;
-                }
-                // Si el enemigo está durmiendo, cambia el estado a WarningHeard
-                else if (currentState == EnemyState.Sleeping)
-                {
-                    Debug.Log("Changing state to Warning.");
-                    currentState = EnemyState.WarningHeard;
-                }
-            }
-        }
-    }
-
-
-    // Corrutina que controla el comportamiento del enemigo cuando escucha moverse al jugador  
-    IEnumerator WarningHeard()
-    {
-        // Cambia el estado a Waiting para que esté en un estado neutro
-        currentState = EnemyState.Waiting;
-
-        // Establece como destino la posición del enemigo para que no se mueva
-        agent.SetDestination(transform.position);
-
-        // Si la letra Z está activa, se desactiva
-        if (zLeter.activeSelf)
-        {
-            zLeter.SetActive(false);
-        }
-
-        // Activa el signo de interrogación
-        questionMark.SetActive(true);
-
-        // Espera medio segundo
-        yield return new WaitForSeconds(0.5f);
-
-        // Gira el sprite 2 veces
-        for (int i = 0; i < 2; i++)
-        {
-            spriteRenderer.flipX = !spriteRenderer.flipX;
-            // Espera medio segundo
-            yield return new WaitForSeconds(0.5f);
-        }
-        // Desativa el signo de interrogación
-        questionMark.SetActive(false);
-
-        // Cambia el estado a PlayerHeard
-        currentState = EnemyState.ExploreHeard;
-    }
-    // Método para que el enemigo vaya a explorar el lugar desde donde ha oído moverse al jugador
-    void ExplorePositionHeard(Vector2 tempTarget)
-    {
-        // Establece como destino la posición donde se ha oído al jugador
-        agent.SetDestination(tempTarget);
-
-        // Si ha llegado al destino
-        if (Vector3.Distance(transform.position, tempTarget) <= destinationReachedDistance)
-        {
-            // Cambia el estado a Sleeping
-            currentState = EnemyState.Sleeping;
-        }
-    }
+    } 
 
     void PlayerSeenAndLost()
     {
@@ -326,16 +285,10 @@ public class SleepyheadEnemy : MonoBehaviour
     {
         // Cancela la búsqueda y vuelve al estado de patrulla
         CancelInvoke(nameof(SearchForPlayer));
-        Debug.Log("Player not found, returning to Sleeping state.");
-        currentState = EnemyState.Sleeping;
+        Debug.Log("Player not found, returning to Guard state.");
+        currentState = EnemyState.Guard;
     }
-    // Método que se ejecuta cuando el enemigo es destruido
-    void OnDestroy()
-    {
-        // Elimina la suscipción al evento Player.OnPlayerMoving
-        Player.OnPlayerMoving -= OnPlayerHeard;
-    }
-
+   
     // Método para dibujar los Gizmos
     void OnDrawGizmos()
     {
@@ -345,6 +298,6 @@ public class SleepyheadEnemy : MonoBehaviour
 
         // Dibuja un círculo que representa al rango de escucha
         Gizmos.color = Color.green;
-        Gizmos.DrawWireSphere(transform.position, hearingRadius);
+        Gizmos.DrawWireSphere(transform.position, attackRange);
     }
 }
